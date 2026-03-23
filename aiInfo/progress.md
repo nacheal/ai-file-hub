@@ -230,7 +230,8 @@ DeepSeek API (内容分析 + 问答)
 **T-144 验收：完整登录流程测试** ✅
 - 生产地址：https://ai-file-hub.vercel.app/
 - GitHub 登录流程线上验收通过
-- /dashboard 页面正常跳转显示
+- OAuth 回调正确跳转至生产 /dashboard（已修复 Supabase Site URL）
+- 生产环境完整登录流程验证通过 ✅
 
 ---
 
