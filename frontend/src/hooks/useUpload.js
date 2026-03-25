@@ -90,8 +90,11 @@ export function useUpload() {
       setProgress(100)
 
       // 触发 AI 分析（fire-and-forget，状态通过 Realtime 推送）
+      // 显式传入 session JWT，兼容 Supabase 新版 publishable key 格式（非 JWT）
+      const { data: { session } } = await supabase.auth.getSession()
       supabase.functions.invoke('analyze-file', {
         body: { document_id: docId },
+        headers: session ? { Authorization: `Bearer ${session.access_token}` } : undefined,
       }).catch((err) => console.warn('analyze-file invoke error:', err))
 
       return data

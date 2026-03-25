@@ -422,6 +422,12 @@ auth.users (Supabase 内置)
 **T-319 部署 analyze-file** ✅
 - supabase functions deploy analyze-file —— 部署成功
 - 函数 URL：https://gkdhnuxyzpocitphcciy.supabase.co/functions/v1/analyze-file
+- ⚠️ **Bug 修复（2026-03-25）：401 Invalid JWT**
+  - 根因：Supabase 新版 publishable key（`sb_publishable_*`）非标准 JWT，网关级 `verify_jwt = true` 校验直接拒绝请求
+  - 修复一：`useUpload.js` 和 `AIResultPanel.jsx` 中显式通过 `supabase.auth.getSession()` 获取 `access_token`，手动写入 `Authorization` header
+  - 修复二：`supabase/config.toml` 将 `verify_jwt` 改为 `false`，并重新以 `--no-verify-jwt` 部署；函数内部已有完整 JWT 鉴权，安全性不受影响
+  - ✅ **MD 文件分析实测通过**
+  - ⚠️ **已知问题**：图片文件分析失败——`deepseek-chat` 模型不支持视觉输入，待后续替换为视觉模型时修复
 
 **前端 useUpload 更新** ✅
 - 上传并写入 documents 表后，fire-and-forget 调用 analyze-file
@@ -590,4 +596,4 @@ frontend/
 
 **最后更新：** 2026-03-25
 **更新人：** AI Assistant
-**下次更新：** 完成阶段三（T-301 至 T-325）后
+**下次更新：** 完成阶段四（T-401 至 T-417）后

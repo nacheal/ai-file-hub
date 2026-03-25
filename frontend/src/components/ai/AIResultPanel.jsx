@@ -42,8 +42,10 @@ export default function AIResultPanel({ document, aiResult, onRetry }) {
   async function handleRetry() {
     setRetrying(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
       await supabase.functions.invoke('analyze-file', {
         body: { document_id: document.id },
+        headers: session ? { Authorization: `Bearer ${session.access_token}` } : undefined,
       })
     } catch (err) {
       console.error('retry error:', err)
