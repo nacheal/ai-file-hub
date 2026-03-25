@@ -1,10 +1,10 @@
 # AI File Hub — 项目进度报告
 
 **更新日期：** 2026-03-25
-**当前阶段：** 阶段三（AI 分析管道）— 阶段二全部完成 🎉
-**完成进度：** T-101 至 T-233 全部完成；生产环境已上线
+**当前阶段：** 阶段四（搜索与 AI 问答）— 阶段三全部完成 🎉
+**完成进度：** T-101 至 T-325 全部完成；生产环境已上线
 **生产地址：** https://ai-file-hub.vercel.app/
-**下一步：** T-301 至 T-325（Edge Functions + AI 分析 + 文件详情页）
+**下一步：** T-401 至 T-417（全文搜索 + AI 流式问答）
 
 ---
 
@@ -395,6 +395,62 @@ auth.users (Supabase 内置)
 - 浏览器对 `.md` 返回 `application/octet-stream`：改用扩展名推断 MIME 类型
 - Supabase SDK 传 `File` 对象时忽略 `contentType` 选项：改用 `new Blob([file], { type })` 强制指定
 
+### 4.4 已完成（阶段三：AI 分析管道）✅
+
+**T-301 安装 Supabase CLI** ✅
+- 手动下载 supabase_darwin_arm64 二进制文件，安装至 ~/.local/bin/
+- 清除 macOS 隔离属性，版本 v2.78.1
+
+**T-302 初始化 Edge Functions 目录** ✅
+- 创建 supabase/config.toml（project_id = gkdhnuxyzpocitphcciy）
+- 创建 supabase/functions/_shared/cors.ts（公共 CORS 头）
+- 创建 supabase/functions/analyze-file/index.ts
+
+**T-303 配置 Supabase Secrets** ✅
+- DEEPSEEK_API_KEY 已通过 CLI 写入云端 Secrets
+- SUPABASE_SERVICE_ROLE_KEY 由平台自动注入（无需手动设置）
+
+**T-304 + T-311~318 analyze-file Edge Function** ✅
+- JWT 鉴权：通过 userClient.auth.getUser() 验证，RLS 自动保证归属权
+- 文件下载：adminClient.storage.from('user-files').download()
+- 文本提取：TXT/MD 直接 .text()；PDF 正则提取文本流；图片 btoa 转 base64
+- DeepSeek 调用：system prompt 要求返回 JSON {summary, key_points, tags}
+- 容错解析：兼容 markdown 代码块包裹的 JSON
+- 写入 ai_results + 更新 documents.status（done/error）
+- 失败时自动 catch 并更新 status='error'
+
+**T-319 部署 analyze-file** ✅
+- supabase functions deploy analyze-file —— 部署成功
+- 函数 URL：https://gkdhnuxyzpocitphcciy.supabase.co/functions/v1/analyze-file
+
+**前端 useUpload 更新** ✅
+- 上传并写入 documents 表后，fire-and-forget 调用 analyze-file
+- 状态变化通过 Realtime 实时推送到前端
+
+**T-321 FilePage.jsx** ✅
+- 左栏（2/5）：文件图标 + 名称 + StatusBadge + 元信息（大小、MIME、日期）
+- 右栏（3/5）：AIResultPanel
+- 订阅 documents 和 ai_results 的 Realtime 更新
+- 图片预览（generateSignedUrl，60s 有效）
+- 删除文件（Storage + DB）
+
+**T-322 AIResultPanel.jsx** ✅
+- done 态：展示 summary + key_points 列表 + tags 标签
+- processing/pending 态：骨架屏动画 + 蓝色进度提示
+- error 态：错误提示 + 「重新分析」按钮（调用 analyze-file）
+
+**T-323 分析 loading 态** ✅
+- ProcessingSkeleton 组件，含 Loader2 动画 + 多行骨架占位
+
+**T-324 分析 error 态与重试按钮** ✅
+- 红色错误卡片 + RetryButton，点击重新 invoke analyze-file
+
+**T-325 图片预览 FilePreview.jsx** ✅
+- 全屏遮罩模态框，ESC / 点击遮罩关闭
+- Supabase Storage createSignedUrl 生成安全 URL
+
+---
+
 ### 4.3 立即开始（阶段三：AI 分析管道）
 
 **T-201 至 T-203：布局与导航**
@@ -474,7 +530,7 @@ auth.users (Supabase 内置)
 | M1: 后端基础设施就绪 | T-101 至 T-112 完成 | 2026-03-23 | 2026-03-23 | ✅ 已完成 |
 | M2: 前端框架搭建完成 | T-121 至 T-144 完成 | 2026-03-24 | 2026-03-23 | ✅ 已完成 |
 | M3: 文件上传功能上线 | 阶段二完成 | 2026-03-27 | 2026-03-25 | ✅ 已完成 |
-| M4: AI 分析功能上线 | 阶段三完成 | 2026-03-31 | - | ⏳ 待开始 |
+| M4: AI 分析功能上线 | 阶段三完成 | 2026-03-31 | 2026-03-25 | ✅ 已完成 |
 | M5: 搜索与问答上线 | 阶段四完成 | 2026-04-03 | - | ⏳ 待开始 |
 | M6: 项目正式发布 | 阶段五完成 | 2026-04-06 | - | ⏳ 待开始 |
 

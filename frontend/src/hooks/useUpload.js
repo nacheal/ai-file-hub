@@ -88,6 +88,12 @@ export function useUpload() {
       if (insertError) throw insertError
 
       setProgress(100)
+
+      // 触发 AI 分析（fire-and-forget，状态通过 Realtime 推送）
+      supabase.functions.invoke('analyze-file', {
+        body: { document_id: docId },
+      }).catch((err) => console.warn('analyze-file invoke error:', err))
+
       return data
     } catch (err) {
       setError(err.message || '上传失败，请重试')
