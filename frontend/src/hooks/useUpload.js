@@ -58,11 +58,13 @@ export function useUpload() {
       const storagePath = `${user.id}/${docId}/${file.name}`
 
       const contentType = resolveContentType(file)
+      // 重新包成 Blob，确保 MIME 类型正确——直接传 File 对象时 SDK 可能沿用 file.type
+      const blob = new Blob([file], { type: contentType })
 
-      // 上传至 Supabase Storage（显式传 contentType 避免 application/octet-stream 被拒）
+      // 上传至 Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('user-files')
-        .upload(storagePath, file, { contentType })
+        .upload(storagePath, blob, { contentType })
 
       if (uploadError) throw uploadError
 
