@@ -380,7 +380,22 @@ auth.users (Supabase 内置)
 - [x] Vercel 线上地址能完整走通登录流程
 - [x] Vercel 环境变量已配置，构建正常
 
-### 4.2 立即开始（阶段二：文件上传管道）
+### 4.2 阶段二验收结果 ✅
+
+**全部通过：**
+- [x] 图片文件（PNG/JPG/WebP）上传成功，出现在文件列表
+- [x] MD 文件上传成功（修复 MIME 类型推断问题）
+- [x] PDF 文件上传成功（修复 Blob 包装问题）
+- [x] 文件删除：确认弹窗 → Storage 清除 → DB 记录删除
+- [x] StatusBadge 状态显示正常
+- [x] Realtime 列表实时刷新
+- [x] 格式/大小校验错误提示正常
+
+**已修复的问题：**
+- 浏览器对 `.md` 返回 `application/octet-stream`：改用扩展名推断 MIME 类型
+- Supabase SDK 传 `File` 对象时忽略 `contentType` 选项：改用 `new Blob([file], { type })` 强制指定
+
+### 4.3 立即开始（阶段三：AI 分析管道）
 
 **T-201 至 T-203：布局与导航**
 - 实现 `AppLayout.jsx`：左侧 Sidebar + 主内容区 Outlet
@@ -517,6 +532,6 @@ frontend/
 
 ---
 
-**最后更新：** 2026-03-23 23:00
+**最后更新：** 2026-03-25
 **更新人：** AI Assistant
-**下次更新：** 完成阶段二（T-201 至 T-233）后
+**下次更新：** 完成阶段三（T-301 至 T-325）后
