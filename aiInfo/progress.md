@@ -1,10 +1,10 @@
 # AI File Hub — 项目进度报告
 
 **更新日期：** 2026-03-25
-**当前阶段：** 阶段四（搜索与 AI 问答）— 阶段三全部完成 🎉
-**完成进度：** T-101 至 T-325 全部完成；生产环境已上线
+**当前阶段：** 阶段五（打磨与上线）— 阶段四全部完成 🎉
+**完成进度：** T-101 至 T-417 全部完成；生产环境已上线
 **生产地址：** https://ai-file-hub.vercel.app/
-**下一步：** T-401 至 T-417（全文搜索 + AI 流式问答）
+**下一步：** T-501 至 T-534（UI 打磨 + 错误处理 + 安全验收 + 上线）
 
 ---
 
@@ -457,7 +457,59 @@ auth.users (Supabase 内置)
 
 ---
 
-### 4.3 立即开始（阶段三：AI 分析管道）
+### 4.5 已完成（阶段四：搜索与 AI 问答）✅
+
+**T-401 search-documents Edge Function** ✅
+- ILIKE 双路搜索：文件名（documents.name）+ AI 摘要（ai_results.summary）
+- 自动合并去重，按 created_at 降序排列
+- snippet 片段提取：定位关键词位置，截取前后文本作为摘要
+- JWT 鉴权，RLS 自动限制用户只能搜索自己的文件
+
+**T-402 部署 search-documents** ✅
+- `supabase functions deploy search-documents --no-verify-jwt` 部署成功
+- 更新 `supabase/config.toml` 添加 `[functions.search-documents]` verify_jwt = false
+
+**T-403~405 SearchPage.jsx** ✅
+- 输入防抖 300ms，回车立即触发搜索
+- URL Query String 同步（?q=keyword），支持分享链接
+- HighlightText 组件：关键词黄色高亮
+- 自动聚焦搜索框，一键清除功能
+- 搜索结果：文件图标 + 名称（高亮）+ 摘要片段（高亮）+ 文件信息 + 「内容匹配」标签
+- 空状态：「未找到相关文件」提示 + 建议文案
+
+**T-411 chat-with-file Edge Function** ✅
+- JWT 鉴权 + RLS 归属权验证
+- 读取 ai_results.full_text 作为文件上下文
+- 支持多轮对话（history 数组）
+- DeepSeek API stream: true，SSE 流直接透传给前端
+- 函数 URL：https://gkdhnuxyzpocitphcciy.supabase.co/functions/v1/chat-with-file
+
+**T-412 部署 chat-with-file** ✅
+- `supabase functions deploy chat-with-file --no-verify-jwt` 部署成功
+- 更新 config.toml 添加 `[functions.chat-with-file]` verify_jwt = false
+
+**T-413 useChat hook** ✅
+- messages 状态管理（user + assistant 消息列表）
+- fetch SSE 流：ReadableStream 逐 token 读取
+- 追加式更新最后一条 assistant 消息，流式渲染
+- streaming / error 状态管理
+- clearMessages() 清空会话
+
+**T-414~415 ChatInput.jsx + ChatOutput.jsx** ✅
+- ChatInput：自适应高度 textarea，Enter 发送 / Shift+Enter 换行，streaming 时禁用
+- ChatOutput：用户消息右对齐 + AI 消息左对齐气泡样式，流式输出光标动画（闪烁竖线），等待首 token 时三点弹跳动画，新消息自动滚动到底部
+
+**T-416 FilePage.jsx 集成问答模块** ✅
+- 右栏新增 AI 问答卡片，位于 AIResultPanel 下方
+- 分析完成（status=done）前输入框禁用并提示
+- 「清空对话」按钮（有消息时显示）
+- 错误信息展示区域
+
+**T-417 full_text token 截断** ✅
+- MAX_FULL_TEXT_CHARS = 8000 字符
+- 超出时截断并附加提示 `...[内容已截断，仅展示前 8000 字符]`
+
+---
 
 **T-201 至 T-203：布局与导航**
 - 实现 `AppLayout.jsx`：左侧 Sidebar + 主内容区 Outlet
@@ -537,7 +589,7 @@ auth.users (Supabase 内置)
 | M2: 前端框架搭建完成 | T-121 至 T-144 完成 | 2026-03-24 | 2026-03-23 | ✅ 已完成 |
 | M3: 文件上传功能上线 | 阶段二完成 | 2026-03-27 | 2026-03-25 | ✅ 已完成 |
 | M4: AI 分析功能上线 | 阶段三完成 | 2026-03-31 | 2026-03-25 | ✅ 已完成 |
-| M5: 搜索与问答上线 | 阶段四完成 | 2026-04-03 | - | ⏳ 待开始 |
+| M5: 搜索与问答上线 | 阶段四完成 | 2026-04-03 | 2026-03-25 | ✅ 已完成 |
 | M6: 项目正式发布 | 阶段五完成 | 2026-04-06 | - | ⏳ 待开始 |
 
 **M2 完成详情：**

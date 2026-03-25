@@ -9,12 +9,17 @@ import {
   Eye,
   Calendar,
   HardDrive,
+  MessageCircle,
+  Trash,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import StatusBadge from '@/components/file/StatusBadge'
 import DeleteDialog from '@/components/file/DeleteDialog'
 import AIResultPanel from '@/components/ai/AIResultPanel'
 import FilePreview from '@/components/file/FilePreview'
+import ChatInput from '@/components/ai/ChatInput'
+import ChatOutput from '@/components/ai/ChatOutput'
+import { useChat } from '@/hooks/useChat'
 
 // ─── 辅助函数 ──────────────────────────────────────────────────────────────────
 function FileIcon({ mimeType, size = 40 }) {
@@ -53,6 +58,8 @@ export default function FilePage() {
   const [notFound, setNotFound] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [previewUrl, setPreviewUrl] = useState(null)
+
+  const { messages, streaming, error: chatError, sendMessage, clearMessages } = useChat()
 
   // ── 获取文档详情 ──────────────────────────────────────────────────────────────
   const fetchDoc = useCallback(async () => {
@@ -228,8 +235,8 @@ export default function FilePage() {
             </button>
           </div>
 
-          {/* ── 右栏：AI 分析结果 ───────────────────────────────────────────────── */}
-          <div className="lg:col-span-3">
+          {/* ── 右栏：AI 分析结果 + AI 问答 ─────────────────────────────────────── */}
+          <div className="lg:col-span-3 space-y-4">
             <AIResultPanel
               document={doc}
               aiResult={aiResult}
@@ -238,6 +245,54 @@ export default function FilePage() {
                 setAiResult(null)
               }}
             />
+
+            {/* ── AI 问答模块（分析完成后展示） ─────────────────────────────────── */}
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              {/* 标题栏 */}
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <MessageCircle size={15} className="text-primary" />
+                  AI 问答
+                </div>
+                {messages.length > 0 && (
+                  <button
+                    onClick={clearMessages}
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Trash size={11} />
+                    清空对话
+                  </button>
+                )}
+              </div>
+
+              {/* 对话区 */}
+              <div className="px-4 pt-3 pb-2 max-h-96 overflow-y-auto">
+                {messages.length === 0 && !streaming ? (
+                  <p className="py-4 text-center text-xs text-muted-foreground">
+                    {doc.status === 'done'
+                      ? '基于文件内容提问，AI 将给出针对性回答'
+                      : 'AI 分析完成后即可开始问答'}
+                  </p>
+                ) : (
+                  <ChatOutput messages={messages} streaming={streaming} />
+                )}
+                {/* 错误提示 */}
+                {chatError && (
+                  <p className="mt-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {chatError}
+                  </p>
+                )}
+              </div>
+
+              {/* 输入区 */}
+              <div className="border-t border-border px-4 py-3">
+                <ChatInput
+                  onSend={(text) => sendMessage(id, text)}
+                  streaming={streaming}
+                  disabled={doc.status !== 'done'}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
