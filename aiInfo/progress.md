@@ -1,10 +1,10 @@
 # AI File Hub — 项目进度报告
 
-**更新日期：** 2026-03-23 23:00
-**当前阶段：** 阶段二（文件上传管道）— 阶段一全部完成 🎉
-**完成进度：** T-101 至 T-144 全部完成；生产环境已上线
+**更新日期：** 2026-03-25
+**当前阶段：** 阶段三（AI 分析管道）— 阶段二全部完成 🎉
+**完成进度：** T-101 至 T-233 全部完成；生产环境已上线
 **生产地址：** https://ai-file-hub.vercel.app/
-**下一步：** T-201 至 T-233（布局 + 文件上传 + 列表 + 删除）
+**下一步：** T-301 至 T-325（Edge Functions + AI 分析 + 文件详情页）
 
 ---
 
@@ -296,6 +296,79 @@ auth.users (Supabase 内置)
 
 ---
 
+### 2.4 已完成任务（T-201 至 T-233）✅
+
+#### ✅ 2.1 布局与导航（T-201 至 T-203）
+
+**T-201 实现 AppLayout.jsx** ✅
+- 左侧 Sidebar + 主内容区 Outlet 双栏布局
+- 路由嵌套：ProtectedRoute → AppLayout → 各页面
+
+**T-202 实现 Sidebar.jsx** ✅
+- 导航链接：文件库（/dashboard）、搜索（/search）
+- 用户头像（GitHub avatar）+ 用户名显示
+- 退出登录按钮（调用 signOut，跳转 /）
+
+**T-203 实现 TopBar.jsx** ✅
+- 搜索栏占位按钮（点击跳转 /search）
+
+#### ✅ 2.2 文件上传（T-211 至 T-215）
+
+**T-211 实现 UploadZone.jsx** ✅
+- 支持拖拽（dragover/drop 事件）和点击选择文件
+- 上传中禁用交互，视觉反馈明确
+
+**T-212 前端文件校验** ✅
+- 格式白名单：PDF、TXT、MD、PNG、JPG、WebP
+- 50MB 大小检查 + 分类错误提示（可关闭）
+
+**T-213 实现 useUpload hook** ✅
+- `supabase.storage.upload()` 上传至 user-files bucket
+- 路径规则：`{user_id}/{docId}/{filename}`
+- 写 documents 表（status='pending'）
+- progress / error / uploading 状态管理
+
+**T-214 上传进度条 UI** ✅
+- 进度百分比实时显示，上传完成后自动消失
+
+**T-215 上传错误处理** ✅
+- 文件过大 / 格式不支持 / 网络错误分类提示
+
+#### ✅ 2.3 文件列表与实时更新（T-221 至 T-226）
+
+**T-221 实现 useDocuments hook** ✅
+- 查询 documents 表，按 created_at DESC 排序
+
+**T-222 订阅 Realtime** ✅
+- 监听 INSERT / UPDATE / DELETE 事件，自动更新本地状态
+
+**T-223 实现 FileCard.jsx** ✅
+- 文件图标（按 MIME 类型区分）+ 名称 + 大小 + 时间 + StatusBadge
+- 点击跳转 /file/:id，悬停显示删除按钮
+
+**T-224 实现 StatusBadge.jsx** ✅
+- pending（灰）/ processing（蓝，带动画）/ done（绿）/ error（红）
+
+**T-225 实现 FileList.jsx** ✅
+- 展示 FileCard 列表 + 前端关键词过滤 input
+- 骨架屏 loading 态 + 空状态引导
+
+**T-226 实现 DashboardPage.jsx** ✅
+- 组合 UploadZone + FileList，接入 useDocuments
+
+#### ✅ 2.4 文件删除（T-231 至 T-233）
+
+**T-231 删除确认弹窗** ✅
+- 自实现轻量 DeleteDialog（Tailwind 遮罩 + 弹窗）
+- 二次确认，防误删；删除中显示 loading 状态
+
+**T-232 + T-233 删除逻辑** ✅
+- 先 `supabase.storage.from('user-files').remove()` 清除 Storage 文件
+- 再 DELETE documents 记录（CASCADE 自动删 ai_results）
+- Realtime DELETE 事件自动更新列表
+
+---
+
 ## 四、下一步行动计划
 
 ### 4.1 阶段一验收结果 ✅
@@ -385,7 +458,7 @@ auth.users (Supabase 内置)
 |--------|---------|---------|---------|------|
 | M1: 后端基础设施就绪 | T-101 至 T-112 完成 | 2026-03-23 | 2026-03-23 | ✅ 已完成 |
 | M2: 前端框架搭建完成 | T-121 至 T-144 完成 | 2026-03-24 | 2026-03-23 | ✅ 已完成 |
-| M3: 文件上传功能上线 | 阶段二完成 | 2026-03-27 | - | 🔄 进行中 |
+| M3: 文件上传功能上线 | 阶段二完成 | 2026-03-27 | 2026-03-25 | ✅ 已完成 |
 | M4: AI 分析功能上线 | 阶段三完成 | 2026-03-31 | - | ⏳ 待开始 |
 | M5: 搜索与问答上线 | 阶段四完成 | 2026-04-03 | - | ⏳ 待开始 |
 | M6: 项目正式发布 | 阶段五完成 | 2026-04-06 | - | ⏳ 待开始 |
