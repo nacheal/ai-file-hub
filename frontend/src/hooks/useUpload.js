@@ -2,24 +2,32 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'text/plain',
-  'text/markdown',
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-]
-
-// text/markdown 通常以 .md 文件出现，有时 MIME 为 text/plain
-const ALLOWED_EXTENSIONS = ['.pdf', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp']
+// 扩展名 → 标准 MIME 类型映射（解决浏览器将 .md 识别为 application/octet-stream 的问题）
+const EXT_MIME_MAP = {
+  '.pdf':  'application/pdf',
+  '.txt':  'text/plain',
+  '.md':   'text/markdown',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+}
 
 const MAX_SIZE = 50 * 1024 * 1024 // 50MB
 
+function getExt(filename) {
+  return '.' + filename.split('.').pop().toLowerCase()
+}
+
+/** 返回上传时应使用的 MIME 类型（优先扩展名推断，确保 Storage 能接受） */
+function resolveContentType(file) {
+  const ext = getExt(file.name)
+  return EXT_MIME_MAP[ext] || file.type || 'application/octet-stream'
+}
+
 function validateFile(file) {
-  const ext = '.' + file.name.split('.').pop().toLowerCase()
-  const typeOk = ALLOWED_TYPES.includes(file.type) || ALLOWED_EXTENSIONS.includes(ext)
-  if (!typeOk) {
+  const ext = getExt(file.name)
+  if (!EXT_MIME_MAP[ext]) {
     return `不支持的文件格式（${file.name}）。支持：PDF、TXT、MD、PNG、JPG、WebP`
   }
   if (file.size > MAX_SIZE) {
@@ -49,10 +57,12 @@ export function useUpload() {
       const docId = crypto.randomUUID()
       const storagePath = `${user.id}/${docId}/${file.name}`
 
-      // 上传至 Supabase Storage
+      const contentType = resolveContentType(file)
+
+      // 上传至 Supabase Storage（显式传 contentType 避免 application/octet-stream 被拒）
       const { error: uploadError } = await supabase.storage
         .from('user-files')
-        .upload(storagePath, file)
+        .upload(storagePath, file, { contentType })
 
       if (uploadError) throw uploadError
 
@@ -66,7 +76,7 @@ export function useUpload() {
           user_id: user.id,
           name: file.name,
           size: file.size,
-          mime_type: file.type || 'application/octet-stream',
+          mime_type: contentType,
           storage_path: storagePath,
           status: 'pending',
         })
