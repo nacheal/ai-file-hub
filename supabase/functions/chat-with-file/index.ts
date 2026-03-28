@@ -1,8 +1,89 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { embedSingleText } from '../_shared/embed.ts'
 
-// ─── T-417：全文截断（避免超出 token 限制） ────────────────────────────────────
+// ─── RAG 检索配置（阶段六）──────────────────────────────────────────────────────
+const RAG_CONFIG = {
+  TOP_K: 5,                    // 检索最相关的 5 个 chunks
+  MIN_SIMILARITY: 0.5,         // 最小相似度阈值
+} as const
+
+// ─── 向量检索函数 ──────────────────────────────────────────────────────────────
+interface ChunkResult {
+  content: string
+  chunk_index: number
+  similarity: number
+}
+
+async function retrieveChunks(
+  supabaseClient: ReturnType<typeof createClient>,
+  documentId: string,
+  questionEmbedding: number[],
+  topK = RAG_CONFIG.TOP_K,
+): Promise<ChunkResult[]> {
+  // pgvector 相似度查询（余弦距离）
+  // 注意：我们需要直接查询，因为 pgvector 的相似度需要特殊操作符
+  // 这里使用普通查询 + 客户端排序（临时方案，生产环境建议使用 RPC）
+
+  const { data, error } = await supabaseClient
+    .from('document_chunks')
+    .select('content, chunk_index, embedding')
+    .eq('document_id', documentId)
+
+  if (error) {
+    console.error('[retrieveChunks] 查询失败:', error)
+    throw new Error(`向量检索失败: ${error.message}`)
+  }
+
+  if (!data || data.length === 0) {
+    console.log('[retrieveChunks] 未找到任何 chunks')
+    return []
+  }
+
+  // 计算余弦相似度并排序
+  const results = data
+    .map((row: { content: string; chunk_index: number; embedding: unknown }) => {
+      const embedding = typeof row.embedding === 'string'
+        ? JSON.parse(row.embedding)
+        : Array.isArray(row.embedding)
+        ? row.embedding
+        : []
+
+      const similarity = cosineSimilarity(questionEmbedding, embedding)
+
+      return {
+        content: row.content,
+        chunk_index: row.chunk_index,
+        similarity,
+      }
+    })
+    .filter((r: ChunkResult) => r.similarity >= RAG_CONFIG.MIN_SIMILARITY)
+    .sort((a: ChunkResult, b: ChunkResult) => b.similarity - a.similarity)
+    .slice(0, topK)
+
+  return results
+}
+
+// 计算余弦相似度（临时实现，与 embed.ts 中的函数相同）
+function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  if (vecA.length !== vecB.length) return 0
+
+  let dotProduct = 0
+  let normA = 0
+  let normB = 0
+
+  for (let i = 0; i < vecA.length; i++) {
+    dotProduct += vecA[i] * vecB[i]
+    normA += vecA[i] * vecA[i]
+    normB += vecB[i] * vecB[i]
+  }
+
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB)
+  return denominator === 0 ? 0 : dotProduct / denominator
+}
+
+// ─── 旧版全文截断（降级方案）────────────────────────────────────────────────────
 const MAX_FULL_TEXT_CHARS = 8000
 
 function truncateText(text: string): string {
@@ -76,22 +157,67 @@ serve(async (req) => {
       })
     }
 
-    // ── 4. 获取文档全文（ai_results.full_text） ────────────────────────────────
+    // ── 4. RAG 向量检索（阶段六）──────────────────────────────────────────────
     const adminClient = createClient(supabaseUrl, serviceRoleKey)
-    const { data: aiResult } = await adminClient
-      .from('ai_results')
-      .select('full_text')
-      .eq('document_id', document_id)
-      .single()
 
-    const rawFullText = aiResult?.full_text ?? ''
-    const fullText = truncateText(rawFullText)
+    let contextText = ''
+    let useRag = false
+
+    try {
+      // 4.1 对用户问题进行向量化
+      console.log('[chat-with-file] 开始对问题进行向量化...')
+      const questionEmbedding = await embedSingleText(message)
+      console.log('[chat-with-file] 问题向量化完成')
+
+      // 4.2 检索最相关的 chunks
+      console.log('[chat-with-file] 开始检索相关 chunks...')
+      const chunks = await retrieveChunks(userClient, document_id, questionEmbedding)
+      console.log(`[chat-with-file] 检索到 ${chunks.length} 个相关 chunks`)
+
+      // 4.3 拼装上下文
+      if (chunks.length > 0) {
+        useRag = true
+        contextText = chunks
+          .map((chunk, index) => {
+            return `[段落 ${chunk.chunk_index}]\n${chunk.content}`
+          })
+          .join('\n\n')
+        console.log('[chat-with-file] 使用 RAG 模式，基于检索到的 chunks 回答')
+      } else {
+        console.log('[chat-with-file] 未检索到相关内容，降级到全文模式')
+        throw new Error('无相关 chunks，降级到全文模式')
+      }
+    } catch (ragError) {
+      // RAG 失败时降级到旧版全文注入
+      console.warn(
+        '[chat-with-file] RAG 检索失败，降级到全文模式:',
+        ragError instanceof Error ? ragError.message : String(ragError)
+      )
+
+      const { data: aiResult } = await adminClient
+        .from('ai_results')
+        .select('full_text')
+        .eq('document_id', document_id)
+        .single()
+
+      const rawFullText = aiResult?.full_text ?? ''
+      contextText = truncateText(rawFullText)
+      useRag = false
+    }
 
     // ── 5. 构建 Prompt 消息 ────────────────────────────────────────────────────
-    const systemPrompt = `你是一个专业的文件内容助手。用户正在查看文件「${doc.name}」，以下是该文件的全文内容：
+    const systemPrompt = useRag
+      ? `你是一个专业的文件内容助手。用户正在查看文件「${doc.name}」，以下是从该文件中检索到的与问题最相关的内容片段：
 
 ---
-${fullText || '[该文件暂无可用全文内容]'}
+${contextText || '[未找到相关内容]'}
+---
+
+请根据以上内容片段回答用户的问题。如果内容片段中没有相关信息，请如实告知用户「文档中未找到相关内容」，不要编造答案。`
+      : `你是一个专业的文件内容助手。用户正在查看文件「${doc.name}」，以下是该文件的全文内容：
+
+---
+${contextText || '[该文件暂无可用全文内容]'}
 ---
 
 请根据以上文件内容回答用户的问题。回答要准确、简洁、有帮助。如果问题与文件内容无关，请礼貌地引导用户聚焦于文件内容。`

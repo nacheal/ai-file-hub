@@ -1,6 +1,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { chunkText } from '../_shared/chunk.ts'
+import { embedChunks } from '../_shared/embed.ts'
 
 // ─── PDF 文本提取（简单实现，覆盖大部分文本型 PDF）───────────────────────────
 async function extractPdfText(blob: Blob): Promise<string> {
@@ -263,6 +265,53 @@ serve(async (req) => {
 
     if (upsertError) {
       throw new Error(`写入 ai_results 失败: ${upsertError.message}`)
+    }
+
+    // ── 8.5 分块与向量化（阶段六新增，失败不影响主流程）────────────────────────
+    try {
+      // 仅对有文本内容的文件进行分块（图片文件跳过）
+      if (textContent && textContent.length > 0 && !isImage) {
+        console.log(`[analyze-file] 开始为文档 ${documentId} 进行分块和向量化...`)
+
+        // 1. 文本分块
+        const chunks = chunkText(textContent)
+        console.log(`[analyze-file] 文本分块完成，共 ${chunks.length} 个块`)
+
+        if (chunks.length > 0) {
+          // 2. 生成向量
+          const embeddings = await embedChunks(chunks)
+          console.log(`[analyze-file] 向量生成完成，共 ${embeddings.length} 个向量`)
+
+          // 3. 准备批量插入数据
+          const chunkRecords = chunks.map((content, index) => ({
+            document_id: documentId,
+            content,
+            chunk_index: index,
+            embedding: JSON.stringify(embeddings[index]), // pgvector 接受 JSON 数组格式
+          }))
+
+          // 4. 批量写入 document_chunks 表（使用 adminClient 绕过 RLS）
+          const { error: chunksError } = await adminClient
+            .from('document_chunks')
+            .insert(chunkRecords)
+
+          if (chunksError) {
+            throw new Error(`写入 document_chunks 失败: ${chunksError.message}`)
+          }
+
+          console.log(`[analyze-file] 成功写入 ${chunkRecords.length} 条 chunk 记录`)
+        } else {
+          console.log(`[analyze-file] 文本过短，未生成 chunks`)
+        }
+      } else {
+        console.log(`[analyze-file] 图片文件或无文本内容，跳过分块流程`)
+      }
+    } catch (chunkingError) {
+      // 分块/向量化失败不影响主流程，仅记录日志
+      console.error(
+        '[analyze-file] 分块/向量化失败（不影响主流程）:',
+        chunkingError instanceof Error ? chunkingError.message : String(chunkingError)
+      )
     }
 
     // ── 9. 更新 status 为 done ─────────────────────────────────────────────────

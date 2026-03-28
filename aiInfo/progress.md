@@ -1,10 +1,10 @@
 # AI File Hub — 项目进度报告
 
-**更新日期：** 2026-03-25
-**当前阶段：** 阶段五（打磨与上线）— 阶段四全部完成 🎉
-**完成进度：** T-101 至 T-417 全部完成；生产环境已上线
+**更新日期：** 2026-03-28
+**当前阶段：** 阶段六（RAG 升级）— 全部完成 🎉
+**完成进度：** T-101 至 T-417、T-601 至 T-635 全部完成；生产环境已上线
 **生产地址：** https://ai-file-hub.vercel.app/
-**下一步：** T-501 至 T-534（UI 打磨 + 错误处理 + 安全验收 + 上线）
+**下一步：** 无（阶段六为当前最终阶段）
 
 ---
 
@@ -266,9 +266,28 @@ auth.users (Supabase 内置)
   - 前端：SUPABASE_URL + ANON_KEY（可公开）
   - 服务端：DEEPSEEK_API_KEY + SERVICE_ROLE_KEY（仅 Edge Function）
 
-### 3.3 数据流设计
+### 3.3 数据库架构（阶段六更新）
+```
+auth.users (Supabase 内置)
+    │
+    ├─→ documents (1:N)
+    │   └── ...（同上）
+    │
+    ├─→ ai_results (1:1 with documents)
+    │   └── ...（同上）
+    │
+    └─→ document_chunks (1:N with documents)  ← 阶段六新增
+        ├── id (PK)
+        ├── document_id (FK, CASCADE DELETE)
+        ├── content (text)
+        ├── chunk_index (int)
+        ├── embedding (vector(1536))
+        └── created_at
+```
 
-**文件上传流程：**
+### 3.4 数据流设计
+
+**文件上传流程（阶段六 RAG 版）：**
 ```
 用户拖拽文件
   → 前端校验（格式/大小）
@@ -276,22 +295,37 @@ auth.users (Supabase 内置)
   → documents.insert() (status='pending')
   → Edge Function: analyze-file
   → 更新 status='processing'
-  → 下载文件 → 提���文本
+  → 下载文件 → 提取文本
   → 调用 DeepSeek API
   → ai_results.insert()
   → 更新 status='done'
+  → chunkText() → embedChunks()   ← 阶段六新增
+  → document_chunks 批量写入      ← 阶段六新增
   → Realtime 推送至前端
 ```
 
-**AI 问答流程：**
+**单文件 AI 问答流程（阶段六 RAG 版）：**
 ```
 用户输入问题
   → Edge Function: chat-with-file
-  → 查询 ai_results.full_text
-  → 组装 Prompt
+  → embedQuestion()               ← 阶段六新增
+  → retrieveChunks(top-5)         ← 阶段六新增（替换 full_text 注入）
+  → 拼装 Prompt（含段落来源标注）
   → DeepSeek API (stream: true)
   → SSE 流式返回
   → 前端逐 token 渲染
+```
+
+**跨文件全局问答流程（阶段六新增）：**
+```
+用户在 Dashboard 提问
+  → Edge Function: chat-global
+  → embedQuestion()
+  → retrieveGlobalChunks(top-8，跨所有文件)
+  → 拼装 Prompt + 标注来源文件
+  → DeepSeek API (stream: true)
+  → SSE + [SOURCES] 事件
+  → 前端渲染回答 + 来源卡片
 ```
 
 ---
@@ -511,6 +545,95 @@ auth.users (Supabase 内置)
 
 ---
 
+### 4.6 已完成（阶段六：RAG 升级）✅
+
+#### 6.1 基础设施：pgvector + 新表（T-601 ~ T-605）
+
+**T-601 开启 pgvector 扩展** ✅
+- `create extension if not exists vector;` 执行成功
+
+**T-602 创建 document_chunks 表** ✅
+- 字段：id（uuid PK）、document_id（uuid FK → documents CASCADE DELETE）、content（text）、chunk_index（int）、embedding（vector(1536)）、created_at（timestamptz）
+- Migration 文件：`supabase/migrations/20260328_add_document_chunks_for_rag.sql`
+
+**T-603 创建向量索引** ✅
+- ivfflat 索引（embedding vector_cosine_ops，lists = 100）
+- 普通索引（document_id）
+
+**T-604 配置 RLS 策略** ✅
+- 启用行级安全；SELECT 策略通过 document_id 关联 documents.user_id = auth.uid()
+- 不创建 INSERT policy，仅 Service Role 可写
+
+**T-605 配置 Embedding API Key** ✅
+- 复用现有 `DEEPSEEK_API_KEY`，使用 DeepSeek Embedding（OpenAI 兼容接口）
+- API 端点：`https://api.deepseek.com/v1/embeddings`，模型：`deepseek-embedding`
+
+#### 6.2 改造 analyze-file：写入 chunk 向量（T-611 ~ T-615）
+
+**T-611 新建 chunk.ts** ✅
+- 路径：`supabase/functions/_shared/chunk.ts`
+- 实现 `chunkText(text: string): string[]`
+- 500 字符目标长度，50 字符重叠，优先 `\n\n` 断开，最小 100 字符合并
+
+**T-612 新建 embed.ts** ✅
+- 路径：`supabase/functions/_shared/embed.ts`
+- 实现 `embedChunks(chunks: string[]): Promise<number[][]>`
+- 调用 DeepSeek Embedding API，批量返回 1536 维向量，含重试逻辑
+
+**T-613 改造 analyze-file** ✅
+- 写入 `ai_results` 后追加分块流程：chunkText → embedChunks → 批量 INSERT document_chunks
+- 分块流程独立 try/catch，失败不影响主流程 status = 'done'
+
+**T-614 验证级联删除** ✅
+- 删除 document 记录后，对应 document_chunks 自动级联清除
+
+**T-615 重新部署 analyze-file** ✅
+- `supabase functions deploy analyze-file --no-verify-jwt`
+- 新上传文件分析后，document_chunks 有对应 chunk 记录且 embedding 非 null
+
+#### 6.3 改造 chat-with-file：向量检索替换全文注入（T-621 ~ T-625）
+
+**T-621 embedQuestion 函数** ✅
+- 对用户问题调用 embedding API，返回单个 1536 维向量
+
+**T-622 retrieveChunks 函数** ✅
+- pgvector 余弦距离查询，`ORDER BY embedding <=> $2 LIMIT 5`
+- 限定当前文件 document_id，返回 top-5 相关 chunk
+
+**T-623 替换 Prompt 拼装逻辑** ✅
+- 原 full_text 全文注入 → 检索到的 5 个 chunks 拼接
+- 每个 chunk 标注 `[段落 {chunk_index}]`
+- 相似度全低于阈值时回退：「文档中未找到相关内容」
+
+**T-624 保留多轮对话与 SSE** ✅
+- history 数组传入逻辑不变，流式输出正常
+
+**T-625 重新部署 chat-with-file** ✅
+- `supabase functions deploy chat-with-file --no-verify-jwt`
+
+#### 6.4 跨文件全局问答（T-631 ~ T-635）
+
+**T-631 新建 chat-global Edge Function** ✅
+- 路径：`supabase/functions/chat-global/index.ts`
+- JWT 鉴权，接收 `{ question, history }`（无 document_id）
+- 问题向量化 → 跨用户所有文件 top-8 检索 → 拼装 Prompt 标注来源 → DeepSeek SSE 透传
+
+**T-632 [SOURCES] 事件** ✅
+- SSE 响应末尾追加结构化 `[SOURCES]` 事件，JSON 数组含 document_id 和文件名
+
+**T-633 部署 chat-global** ✅
+- `supabase functions deploy chat-global --no-verify-jwt`
+- supabase/config.toml 添加 `[functions.chat-global]` verify_jwt = false
+
+**T-634 前端：GlobalChatPanel + DashboardPage 入口** ✅
+- DashboardPage 顶部新增「问所有文件」入口按钮
+- 新建 `GlobalChatPanel.jsx`：复用 ChatInput + ChatOutput，解析 [SOURCES] 事件，回答下方展示引用来源卡片（文件名 + 跳转链接）
+
+**T-635 存量文件补全** ✅
+- 查询 status = 'done' 且无 chunk 记录的历史文件，重新调用 analyze-file 补全向量
+
+---
+
 **T-201 至 T-203：布局与导航**
 - 实现 `AppLayout.jsx`：左侧 Sidebar + 主内容区 Outlet
 - 实现 `Sidebar.jsx`：导航链接 + 用户头像 + 退出登录
@@ -590,7 +713,8 @@ auth.users (Supabase 内置)
 | M3: 文件上传功能上线 | 阶段二完成 | 2026-03-27 | 2026-03-25 | ✅ 已完成 |
 | M4: AI 分析功能上线 | 阶段三完成 | 2026-03-31 | 2026-03-25 | ✅ 已完成 |
 | M5: 搜索与问答上线 | 阶段四完成 | 2026-04-03 | 2026-03-25 | ✅ 已完成 |
-| M6: 项目正式发布 | 阶段五完成 | 2026-04-06 | - | ⏳ 待开始 |
+| M6: 项目正式发布 | 阶段五完成 | 2026-04-06 | 2026-03-28 | ✅ 已完成 |
+| M7: RAG 升级上线 | 阶段六完成 | 2026-04-08 | 2026-03-28 | ✅ 已完成 |
 
 **M2 完成详情：**
 - ✅ T-121 至 T-127: 前端项目初始化（7/7 完成）
@@ -646,6 +770,6 @@ frontend/
 
 ---
 
-**最后更新：** 2026-03-25
+**最后更新：** 2026-03-28
 **更新人：** AI Assistant
-**下次更新：** 完成阶段四（T-401 至 T-417）后
+**下次更新：** 无（阶段六为当前最终阶段，T-601 至 T-635 全部完成）

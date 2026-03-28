@@ -98,6 +98,9 @@ verify_jwt = false
 [functions.chat-with-file]
 verify_jwt = false
 
+[functions.chat-global]
+verify_jwt = false
+
 [analytics]
 enabled = false
 port = 54327
