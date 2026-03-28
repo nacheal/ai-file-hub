@@ -1,9 +1,9 @@
 # AI File Hub — 任务清单
 
-**版本：** v1.0  
-**日期：** 2026-03-18  
-**关联文档：** AI_File_Hub_PRD.md · AI_File_Hub_Architecture.md  
-**总任务数：** 5 个阶段 · 16 个分组 · 68 个任务
+**版本：** v2.0
+**日期：** 2026-03-28
+**关联文档：** PRD.md · progress.md
+**总任务数：** 6 个阶段 · 20 个分组 · 88 个任务
 
 > 标签说明：`[前端]` `[Supabase]` `[Edge Fn]` `[数据库]` `[基础设施]`
 
@@ -171,25 +171,62 @@
 
 ---
 
+## 阶段六：RAG 升级（预计 4 天）
+
+### 6.1 基础设施：pgvector + 新表
+
+- [x] **T-601** 在 Supabase SQL Editor 执行：`create extension if not exists vector;` 开启 pgvector 扩展 `[数据库]`
+- [x] **T-602** 创建 `document_chunks` 表（id、document_id FK、content、chunk_index、embedding vector(1536)、created_at） `[数据库]`
+- [x] **T-603** 创建 ivfflat 向量索引（embedding vector_cosine_ops，lists=100）+ 普通索引（document_id） `[数据库]`
+- [x] **T-604** 配置 `document_chunks` 表 RLS：启用行级安全；SELECT 策略关联 documents.user_id；不创建 INSERT policy `[数据库]`
+- [x] **T-605** 配置 Embedding API Key（复用 DEEPSEEK_API_KEY，DeepSeek Embedding 接口） `[基础设施]`
+
+### 6.2 改造 analyze-file：写入 chunk 向量
+
+- [x] **T-611** 新建 `supabase/functions/_shared/chunk.ts`：实现 `chunkText()`，500 字符/块，50 字符重叠，优先段落断开 `[Edge Fn]`
+- [x] **T-612** 新建 `supabase/functions/_shared/embed.ts`：实现 `embedChunks()`，调用 DeepSeek Embedding API，含重试逻辑 `[Edge Fn]`
+- [x] **T-613** 改造 `analyze-file/index.ts`：写入 ai_results 后追加分块流程，失败不影响主流程 `[Edge Fn]`
+- [x] **T-614** 验证级联删除：删除 document 后对应 chunks 自动清除 `[数据库]`
+- [x] **T-615** 重新部署 analyze-file，验证新上传文件有 chunk 记录且 embedding 非 null `[基础设施]`
+
+### 6.3 改造 chat-with-file：向量检索替换全文注入
+
+- [x] **T-621** 新增 `embedQuestion()` 函数：对用户问题调用 embedding API，返回 1536 维向量 `[Edge Fn]`
+- [x] **T-622** 实现 `retrieveChunks(documentId, questionEmbedding, topK=5)`：pgvector 余弦距离查询 `[Edge Fn]`
+- [x] **T-623** 替换 Prompt 拼装：用检索 chunks 替代 full_text，标注 `[段落 N]`，无结果时回退提示 `[Edge Fn]`
+- [x] **T-624** 保留多轮对话 history 传入逻辑，确认 SSE 流式输出正常 `[Edge Fn]`
+- [x] **T-625** 重新部署 chat-with-file `[基础设施]`
+
+### 6.4 跨文件全局问答
+
+- [x] **T-631** 新建 `supabase/functions/chat-global/index.ts`：跨用户全部文件 top-8 检索，拼装 Prompt 标注来源 `[Edge Fn]`
+- [x] **T-632** SSE 响应末尾追加 `[SOURCES]` 事件，JSON 数组含 document_id 和文件名 `[Edge Fn]`
+- [x] **T-633** 部署 chat-global，更新 config.toml `[基础设施]`
+- [x] **T-634** 前端：DashboardPage 新增「问所有文件」入口；新建 `GlobalChatPanel.jsx`，解析 [SOURCES] 展示来源卡片 `[前端]`
+- [x] **T-635** 存量文件补全：对 status=done 且无 chunk 的历史文件重新执行分块向量化 `[基础设施]`
+
+---
+
 ## 任务统计
 
-| 阶段 | 任务数 | 预计工时 |
-|------|--------|----------|
-| 阶段一：地基搭建 | 26 个 | 3 天 |
-| 阶段二：文件上传管道 | 14 个 | 3 天 |
-| 阶段三：AI 分析管道 | 14 个 | 4 天 |
-| 阶段四：搜索与 AI 问答 | 12 个 | 3 天 |
-| 阶段五：打磨与上线 | 13 个 | 3 天 |
-| **合计** | **68 个** | **16 天** |
+| 阶段 | 任务数 | 状态 |
+|------|--------|------|
+| 阶段一：地基搭建 | 26 个 | ✅ 已完成 |
+| 阶段二：文件上传管道 | 14 个 | ✅ 已完成 |
+| 阶段三：AI 分析管道 | 14 个 | ✅ 已完成 |
+| 阶段四：搜索与 AI 问答 | 12 个 | ✅ 已完成 |
+| 阶段五：打磨与上线 | 13 个 | ✅ 已完成 |
+| 阶段六：RAG 升级 | 20 个 | ✅ 已完成 |
+| **合计** | **99 个** | — |
 
 ## 标签分布
 
 | 标签 | 任务数 | 说明 |
 |------|--------|------|
-| `[前端]` | 36 个 | React 组件、Hooks、路由、状态管理 |
-| `[基础设施]` | 17 个 | Vercel、GitHub、Supabase CLI、环境变量 |
-| `[Edge Fn]` | 9 个 | Deno 边缘函数、AI 调用、流式输出 |
-| `[数据库]` | 6 个 | 建表、RLS、索引 |
+| `[前端]` | 37 个 | React 组件、Hooks、路由、状态管理 |
+| `[基础设施]` | 22 个 | Vercel、GitHub、Supabase CLI、环境变量 |
+| `[Edge Fn]` | 18 个 | Deno 边缘函数、AI 调用、流式输出 |
+| `[数据库]` | 10 个 | 建表、RLS、索引、向量 |
 | `[Supabase]` | 4 个 | Storage、Auth、Realtime |
 
 ---
